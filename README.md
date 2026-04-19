@@ -18,9 +18,9 @@ For each company in the sample, the script:
 
 1. Retrieves the latest 10-Q filing metadata from the SEC EDGAR API
 2. Downloads and cleans the main filing document (handling the XBRL inline viewer wrapper)
-3. Scores the narrative text across eight themes using a weighted keyword dictionary
+3. Scores the narrative text across eight themes using weighted keyword dictionaries
 4. Detects negations to avoid false positives (e.g. "no signs of recession")
-5. Produces a CSV with per-company scores and five visualizations
+5. Produces a CSV with per-company scores and six visualizations, including a composite dashboard
 
 ---
 
@@ -70,6 +70,7 @@ The net `ai_bubble_score` is `bubble_hits - solid_hits`. A highly positive score
 
 ---
 
+
 ## Installation
 
 ```bash
@@ -77,6 +78,8 @@ git clone https://github.com/YOUR_USERNAME/sp500-10q-sentiment-analyzer.git
 cd sp500-10q-sentiment-analyzer
 pip install -r requirements.txt
 ```
+
+**Python version:** requires Python 3.10 or higher (the script uses modern type hint syntax).
 
 ---
 
@@ -101,10 +104,12 @@ python src/analyzer.py
 The script will:
 
 - Print progress for each company processed
-- Save `data/sp500_sentiment_topics.csv` with raw scores
-- Save five PNG visualizations to `output/`
+- Save the raw scores CSV in `data/`
+- Save all PNG visualizations in `output/`
 
-Expected runtime: about 3-5 minutes for 50 companies (respects SEC rate limit of 10 requests per second).
+Both directories are created automatically if they do not exist, and file paths are resolved relative to the script location — so the output ends up in the same place regardless of where you launch Python from.
+
+**Expected runtime:** about 3-5 minutes for 50 companies (respects SEC rate limit of 10 requests per second).
 
 ---
 
@@ -113,14 +118,16 @@ Expected runtime: about 3-5 minutes for 50 companies (respects SEC rate limit of
 ```
 sp500-10q-sentiment-analyzer/
 ├── README.md
+├── DISCLAIMER.md
 ├── LICENSE
 ├── requirements.txt
 ├── .gitignore
 ├── src/
 │   └── analyzer.py
-├── data/
+├── data/                                    (created on first run)
 │   └── sp500_sentiment_topics.csv
-└── output/
+└── output/                                  (created on first run)
+    ├── dashboard_sentiment.png
     ├── fig1_heatmap_weighted.png
     ├── fig2_bar_themes.png
     ├── fig3_ai_bubble_scatter.png
@@ -173,4 +180,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Author
 
-Built as a personal exploration of NLP techniques applied to corporate disclosures. Contributions, suggestions, and pull requests are welcome.
+Built by Francesco Giordano as a personal exploration of NLP techniques applied to corporate disclosures. Contributions, suggestions, and pull requests are welcome.
