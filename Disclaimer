@@ -1,0 +1,51 @@
+# Disclaimer
+
+## Personal project — no warranties
+
+This repository contains a **personal, non-commercial project** developed for educational and exploratory purposes only. It is shared publicly in the spirit of open source to demonstrate a data analysis workflow.
+
+## Not financial advice
+
+Nothing in this repository — including the code, methodology, results, visualizations, or any accompanying documentation — constitutes **financial, investment, legal, or tax advice**. The outputs of this tool are **not** intended to be used as the basis for any investment decision, trading strategy, or business judgment.
+
+The author is **not** a licensed financial advisor, investment professional, or attorney.
+
+## No guarantee of accuracy
+
+The analysis is based on:
+
+- A **non-representative sample** of 50 randomly selected S&P 500 companies
+- **Keyword-based scoring** that cannot capture semantic nuance, sarcasm, conditional statements, or context beyond a 60-character negation window
+- **Publicly available SEC filings** retrieved via the EDGAR API, which may contain errors, omissions, or be subsequently amended
+- **Subjective keyword dictionaries** reflecting the author's interpretation of what constitutes concern or positive signals
+
+Results may be **incomplete, biased, outdated, or inaccurate**. No representation or warranty, express or implied, is made as to the accuracy, completeness, or reliability of any information or conclusions produced by this tool.
+
+## Use at your own risk
+
+Any use of this code, its outputs, or any derived analysis is entirely at the user's own risk. The author:
+
+- Assumes **no responsibility** for any decisions made based on the outputs of this tool
+- Is **not liable** for any direct, indirect, incidental, consequential, or punitive damages arising from the use or misuse of this software
+- Does **not endorse** any company, security, or financial instrument mentioned or analyzed
+
+## Third-party data
+
+This project relies on publicly available data from:
+
+- **SEC EDGAR** (U.S. Securities and Exchange Commission)
+- **Wikipedia** (List of S&P 500 companies)
+
+The author does not own, control, or warrant the accuracy of any third-party data source. Users should consult original sources and qualified professionals before making any decision based on this data.
+
+## No affiliation
+
+The author is **not affiliated** with, endorsed by, or sponsored by any company mentioned in the analysis, nor by the SEC, Wikipedia, or any other organization referenced in this repository.
+
+## License
+
+This project is released under the MIT License — see [LICENSE](LICENSE) for details. The MIT License explicitly disclaims all warranties and limits the author's liability.
+
+---
+
+By using, cloning, or referencing this repository, you acknowledge that you have read, understood, and agreed to this disclaimer.
