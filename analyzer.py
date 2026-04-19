@@ -19,6 +19,10 @@ Themes analyzed:
     - Geopolitical:  conflicts, tariffs, sanctions
     - Technology:    AI bubble vs. AI solidity
 
+Sector breakdown:
+    Companies are grouped by GICS Sector (11 macro sectors) for
+    aggregate peer-group analysis.
+
 DISCLAIMER
 ----------
 This is a personal, non-commercial project for educational purposes only.
@@ -35,6 +39,7 @@ import re
 import time
 import warnings
 import requests
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -56,12 +61,14 @@ RANDOM_STATE  = 42
 SLEEP_BETWEEN = 0.2
 MIN_TEXT_LEN  = 500
 
-# STEP 1 — S&P 500 COMPANY LIST
+# STEP 1 — S&P 500 COMPANY LIST WITH GICS SECTOR
 
 def load_sp500(sample_size: int, random_state: int) -> pd.DataFrame:
+    """Load S&P 500 constituents with GICS sector info and sample n companies."""
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     r   = requests.get(url, headers=HEADERS_WIKI)
-    df  = pd.read_html(StringIO(r.text))[0][["Symbol", "Security"]]
+    df  = pd.read_html(StringIO(r.text))[0][["Symbol", "Security", "GICS Sector"]]
+    df.columns = ["Symbol", "Security", "gics_sector"]
     return df.sample(sample_size, random_state=random_state).reset_index(drop=True)
 
 # STEP 2 — TICKER TO CIK MAPPING
@@ -400,7 +407,6 @@ def score_weighted_topic(text: str, keywords: dict) -> int:
     """Score a topic by summing weighted keyword matches with negation detection."""
     t     = text.lower()
     total = 0
-
     for kw, weight in keywords.items():
         pattern = r"\b" + re.escape(kw) + r"\b"
         for match in re.finditer(pattern, t):
@@ -414,13 +420,11 @@ def score_weighted_topic(text: str, keywords: dict) -> int:
 
 
 def count_all_topics(text: str) -> dict:
-    """Apply weighted scoring to every theme in TOPIC_KEYWORDS."""
     return {topic: score_weighted_topic(text, kw_dict)
             for topic, kw_dict in TOPIC_KEYWORDS.items()}
 
 
 def count_ai_bubble(text: str) -> dict:
-    """Break down AI language into bubble, solidity, and generic components."""
     t             = text.lower()
     bubble_score  = 0
     solid_score   = 0
@@ -457,6 +461,7 @@ def run_analysis(sp500: pd.DataFrame, cik_map: dict) -> pd.DataFrame:
     for _, row in sp500.iterrows():
         ticker  = row["Symbol"]
         company = row["Security"]
+        sector  = row["gics_sector"]
         cik     = cik_map.get(ticker)
 
         if not cik:
@@ -477,19 +482,18 @@ def run_analysis(sp500: pd.DataFrame, cik_map: dict) -> pd.DataFrame:
 
             scores = count_all_topics(text)
             scores.update(count_ai_bubble(text))
-            scores["ticker"]     = ticker
-            scores["company"]    = company
-            scores["filingDate"] = latest["filingDate"]
-            scores["text_len"]   = len(text)
+            scores["ticker"]      = ticker
+            scores["company"]     = company
+            scores["gics_sector"] = sector
+            scores["filingDate"]  = latest["filingDate"]
+            scores["text_len"]    = len(text)
             results.append(scores)
 
             print(
-                f"[OK]    {ticker:<6} | {latest['filingDate']} "
-                f"| {len(text):>8,} chars "
-                f"| inflation: {scores['inflation']:+d} "
+                f"[OK]    {ticker:<6} | {sector[:15]:<15} | "
+                f"{latest['filingDate']} | inflation: {scores['inflation']:+d} "
                 f"| recession: {scores['recession']:+d} "
-                f"| supply: {scores['supply_chain']:+d} "
-                f"| consumer: {scores['consumer']:+d} "
+                f"| geo: {scores['geopolitical']:+d} "
                 f"| ai_net: {scores['ai_bubble_score']:+d}"
             )
 
@@ -505,14 +509,14 @@ def run_analysis(sp500: pd.DataFrame, cik_map: dict) -> pd.DataFrame:
 # STEP 8 — INDIVIDUAL VISUALIZATIONS
 
 def plot_results(df: pd.DataFrame) -> None:
-    """Generate and save five individual visualizations."""
+    """Generate and save the core individual visualizations."""
     topic_cols = list(TOPIC_KEYWORDS.keys())
     ai_cols    = ["ai_bubble_hits", "ai_solid_hits", "ai_generic_hits"]
 
     sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9)
     TITLE_PAD = 14
 
-    # FIGURE 1 — Heatmap
+    # FIGURE 1 — Per-company heatmap
     fig1, ax1 = plt.subplots(figsize=(13, max(6, len(df) * 0.35)))
     sns.heatmap(
         df[topic_cols].astype(float),
@@ -562,58 +566,184 @@ def plot_results(df: pd.DataFrame) -> None:
     fig3.tight_layout()
     fig3.savefig("fig3_ai_bubble_scatter.png", dpi=150)
 
-    # FIGURE 4 — AI stacked bar
-    df_ai = df[ai_cols].copy().sort_values("ai_bubble_hits", ascending=True)
+    # FIGURE 4 — Top concern companies
+    df_local = df.copy()
+    df_local["total_concern"] = df_local[topic_cols].sum(axis=1)
+    top_concern = df_local.nlargest(15, "total_concern")["total_concern"].sort_values()
 
-    fig4, ax4 = plt.subplots(figsize=(9, max(6, len(df) * 0.35)))
-    ax4.barh(df_ai.index, df_ai["ai_bubble_hits"],
-             color="#d73027", label="Bubble signals", edgecolor="white")
-    ax4.barh(df_ai.index, df_ai["ai_solid_hits"],
-             left=df_ai["ai_bubble_hits"],
-             color="#1a9850", label="Solidity signals", edgecolor="white")
-    ax4.barh(df_ai.index, df_ai["ai_generic_hits"],
-             left=df_ai["ai_bubble_hits"] + df_ai["ai_solid_hits"],
-             color="#4575b4", label="Generic mentions",
-             edgecolor="white", alpha=0.7)
-    ax4.set_title("AI Language Breakdown per Company  |  S&P 500 10-Q Sample",
+    fig4, ax4 = plt.subplots(figsize=(9, 6))
+    ax4.barh(top_concern.index, top_concern.values, color="#d73027", edgecolor="white")
+    ax4.set_title("Top 15 Companies by Aggregate Concern Score  |  S&P 500 10-Q Sample",
                   fontsize=13, fontweight="bold", pad=TITLE_PAD)
-    ax4.set_xlabel("Keyword Hit Count")
-    ax4.legend(loc="lower right", fontsize=8)
-    ax4.tick_params(axis="y", labelsize=7)
+    ax4.set_xlabel("Sum of All Weighted Theme Scores")
+    ax4.bar_label(ax4.containers[0], fmt="%+.0f", padding=4, fontsize=8)
     fig4.tight_layout()
-    fig4.savefig("fig4_ai_stacked_bar.png", dpi=150)
-
-    # FIGURE 5 — Top concern companies
-    df["total_concern"] = df[topic_cols].sum(axis=1)
-    top_concern = df.nlargest(15, "total_concern")["total_concern"].sort_values()
-
-    fig5, ax5 = plt.subplots(figsize=(9, 6))
-    ax5.barh(top_concern.index, top_concern.values,
-             color="#d73027", edgecolor="white")
-    ax5.set_title("Top 15 Companies by Aggregate Concern Score  |  S&P 500 10-Q Sample",
-                  fontsize=13, fontweight="bold", pad=TITLE_PAD)
-    ax5.set_xlabel("Sum of All Weighted Theme Scores")
-    ax5.bar_label(ax5.containers[0], fmt="%+.0f", padding=4, fontsize=8)
-    fig5.tight_layout()
-    fig5.savefig("fig5_top_concern.png", dpi=150)
+    fig4.savefig("fig4_top_concern.png", dpi=150)
 
     plt.show()
-    print("\nAll figures saved to disk  (fig1 - fig5).")
+    plt.close("all")
+    print("Individual figures saved  (fig1 - fig4).")
 
 
-# STEP 9 — COMPOSITE DASHBOARD
+# STEP 9 — SECTOR BREAKDOWN VISUALIZATIONS
 
-def plot_dashboard(df: pd.DataFrame) -> None:
+def plot_sector_analysis(df: pd.DataFrame) -> None:
     """
-    Generate a single composite dashboard with three panels:
-        - Top:          heatmap of normalized scores per theme x company
-        - Bottom-left:  aggregate mentions per theme
-        - Bottom-right: top 20 companies by AI bubble score
-    Styled with a dark professional theme.
+    Generate sector-level aggregate analysis:
+        - fig5: sector x theme heatmap (total scores)
+        - fig6: stacked bar per sector
+        - fig7: radar chart per sector
     """
     topic_cols = list(TOPIC_KEYWORDS.keys())
 
-    # Dark theme configuration
+    # Aggregate totals per sector
+    sector_totals = df.groupby("gics_sector")[topic_cols].sum()
+    sector_totals["total"] = sector_totals.sum(axis=1)
+    sector_totals = sector_totals.sort_values("total", ascending=False)
+
+    # Also count how many companies per sector (useful context)
+    sector_counts = df.groupby("gics_sector").size().rename("n_companies")
+    sector_totals = sector_totals.join(sector_counts)
+
+    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9)
+    TITLE_PAD = 14
+
+    # FIGURE 5 — Sector x theme heatmap
+    fig5, ax5 = plt.subplots(figsize=(11, max(5, len(sector_totals) * 0.5)))
+    sns.heatmap(
+        sector_totals[topic_cols].astype(float),
+        ax=ax5, cmap="RdYlGn_r", center=0,
+        linewidths=0.5, linecolor="white",
+        annot=True, fmt=".0f",
+        cbar_kws={"label": "Total Weighted Score per Sector"},
+    )
+    ax5.set_title(
+        "Thematic Concern by GICS Sector  |  S&P 500 10-Q Sample",
+        fontsize=13, fontweight="bold", pad=TITLE_PAD,
+    )
+
+    # Add company count next to sector names
+    y_labels = [f"{s} (n={int(sector_totals.loc[s, 'n_companies'])})"
+                for s in sector_totals.index]
+    ax5.set_yticklabels(y_labels, rotation=0)
+    ax5.set_xlabel("")
+    ax5.set_ylabel("")
+    ax5.tick_params(axis="x", rotation=30)
+    fig5.tight_layout()
+    fig5.savefig("fig5_sector_heatmap.png", dpi=150)
+
+    # FIGURE 6 — Stacked bar per sector (composition of concern)
+    theme_palette = {
+        "inflation":      "#fbbf24",
+        "recession":      "#fb923c",
+        "geopolitical":   "#ef4444",
+        "interest_rates": "#60a5fa",
+        "credit":         "#a78bfa",
+        "supply_chain":   "#10b981",
+        "consumer":       "#ec4899",
+    }
+
+    # Clip negatives to 0 for stacking (only show concern contributions)
+    stack_data = sector_totals[topic_cols].clip(lower=0)
+    # Sort sectors by total concern ascending so largest appears on top
+    stack_data = stack_data.loc[stack_data.sum(axis=1).sort_values().index]
+
+    fig6, ax6 = plt.subplots(figsize=(11, max(5, len(stack_data) * 0.5)))
+    bottom = np.zeros(len(stack_data))
+    for theme in topic_cols:
+        vals = stack_data[theme].values
+        ax6.barh(stack_data.index, vals, left=bottom,
+                 color=theme_palette.get(theme, "#888"),
+                 label=theme.replace("_", " "),
+                 edgecolor="white", linewidth=0.5)
+        bottom += vals
+
+    # Total label at end of each bar
+    totals_sorted = stack_data.sum(axis=1)
+    for i, total in enumerate(totals_sorted):
+        ax6.text(total + max(totals_sorted) * 0.01, i, f"+{int(total)}",
+                 va="center", fontsize=9, fontweight="bold")
+
+    ax6.set_title(
+        "Concern Composition by GICS Sector  |  S&P 500 10-Q Sample",
+        fontsize=13, fontweight="bold", pad=TITLE_PAD,
+    )
+    ax6.set_xlabel("Total Concern Score  (stacked by theme)")
+    ax6.legend(loc="lower right", fontsize=8, ncol=2, framealpha=0.9)
+    ax6.tick_params(axis="y", labelsize=9)
+    fig6.tight_layout()
+    fig6.savefig("fig6_sector_stacked.png", dpi=150)
+
+    # FIGURE 7 — Radar chart per sector (top sectors only to keep it readable)
+    # Normalize each theme 0-1 across sectors for fair comparison
+    radar_data = sector_totals[topic_cols].copy().astype(float)
+    for theme in topic_cols:
+        col = radar_data[theme]
+        rng = col.max() - col.min()
+        radar_data[theme] = (col - col.min()) / rng if rng > 0 else 0
+
+    # Show top 6 sectors by total to keep radar readable
+    top_sectors = sector_totals.nlargest(min(6, len(sector_totals)),
+                                         "total").index.tolist()
+
+    angles = np.linspace(0, 2 * np.pi, len(topic_cols), endpoint=False).tolist()
+    angles += angles[:1]  # close the loop
+
+    n_plots = len(top_sectors)
+    ncols   = 3
+    nrows   = int(np.ceil(n_plots / ncols))
+
+    fig7, axes = plt.subplots(nrows, ncols,
+                              figsize=(ncols * 4.2, nrows * 4.2),
+                              subplot_kw={"projection": "polar"})
+    axes = np.array(axes).flatten()
+
+    for i, sector in enumerate(top_sectors):
+        ax = axes[i]
+        values = radar_data.loc[sector, topic_cols].tolist()
+        values += values[:1]
+
+        ax.plot(angles, values, color="#ef4444", linewidth=2)
+        ax.fill(angles, values, color="#ef4444", alpha=0.25)
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels([t.replace("_", "\n") for t in topic_cols],
+                           fontsize=8)
+        ax.set_yticks([0.25, 0.5, 0.75])
+        ax.set_yticklabels(["", "", ""], fontsize=7)
+        ax.set_ylim(0, 1)
+        n_co = int(sector_totals.loc[sector, "n_companies"])
+        ax.set_title(f"{sector}\n(n={n_co})",
+                     fontsize=10, fontweight="bold", pad=16)
+
+    # Hide unused subplots
+    for j in range(len(top_sectors), len(axes)):
+        axes[j].set_visible(False)
+
+    fig7.suptitle(
+        "Concern Profile by GICS Sector  |  S&P 500 10-Q Sample",
+        fontsize=14, fontweight="bold", y=1.02,
+    )
+    fig7.tight_layout()
+    fig7.savefig("fig7_sector_radar.png", dpi=150, bbox_inches="tight")
+
+    plt.show()
+    plt.close("all")
+    print("Sector figures saved  (fig5 - fig7).")
+
+
+# STEP 10 — COMPOSITE DASHBOARD
+
+def plot_dashboard(df: pd.DataFrame) -> None:
+    """
+    Composite dashboard with three panels:
+        - Top:          heatmap of normalized scores per theme x company
+        - Bottom-left:  aggregate theme ranking
+        - Bottom-right: sector x theme heatmap (replaces AI top 20)
+    Dark professional theme.
+    """
+    topic_cols = list(TOPIC_KEYWORDS.keys())
+
     DARK_BG    = "#0b1220"
     PANEL_BG   = "#111a2b"
     TEXT_COLOR = "#e6e9ef"
@@ -632,18 +762,16 @@ def plot_dashboard(df: pd.DataFrame) -> None:
         "savefig.facecolor": DARK_BG,
     })
 
-    # Figure and grid layout
     fig = plt.figure(figsize=(20, 12))
     gs  = GridSpec(2, 2, figure=fig,
                    height_ratios=[1.4, 1],
-                   hspace=0.35, wspace=0.2)
+                   hspace=0.35, wspace=0.25)
 
     fig.suptitle("S&P 500  ·  10-Q Sentiment Analysis",
                  fontsize=18, fontweight="bold", y=0.98)
 
     # Panel 1: Heatmap (top, full width)
     ax_heat = fig.add_subplot(gs[0, :])
-
     heat_data = df[topic_cols].T.astype(float)
     heat_norm = heat_data.copy()
     for theme in heat_norm.index:
@@ -652,12 +780,9 @@ def plot_dashboard(df: pd.DataFrame) -> None:
         heat_norm.loc[theme] = (row - row.min()) / rng if rng > 0 else 0
 
     sns.heatmap(
-        heat_norm,
-        ax=ax_heat,
-        cmap="RdYlGn_r",
+        heat_norm, ax=ax_heat, cmap="RdYlGn_r",
         cbar_kws={"label": "", "shrink": 0.7},
-        linewidths=0.3,
-        linecolor=PANEL_BG,
+        linewidths=0.3, linecolor=PANEL_BG,
         xticklabels=True,
         yticklabels=[t.replace("_", " ") for t in heat_norm.index],
     )
@@ -670,7 +795,6 @@ def plot_dashboard(df: pd.DataFrame) -> None:
 
     # Panel 2: Theme ranking (bottom-left)
     ax_rank = fig.add_subplot(gs[1, 0])
-
     totals = df[topic_cols].sum().sort_values(ascending=True)
     theme_colors = {
         "credit":         "#a78bfa",
@@ -682,12 +806,10 @@ def plot_dashboard(df: pd.DataFrame) -> None:
         "supply_chain":   "#10b981",
     }
     bar_colors = [theme_colors.get(t, "#94a3b8") for t in totals.index]
-
     bars = ax_rank.barh(
         [t.replace("_", " ") for t in totals.index],
         totals.values,
-        color=bar_colors,
-        edgecolor="none",
+        color=bar_colors, edgecolor="none",
     )
     ax_rank.bar_label(bars, fmt="%+.0f", padding=6,
                       fontsize=10, fontweight="bold", color=TEXT_COLOR)
@@ -699,55 +821,36 @@ def plot_dashboard(df: pd.DataFrame) -> None:
     for spine in ["top", "right"]:
         ax_rank.spines[spine].set_visible(False)
 
-    # Panel 3: AI bubble top 20 (bottom-right)
-    ax_ai = fig.add_subplot(gs[1, 1])
+    # Panel 3: Sector x theme heatmap (bottom-right)
+    ax_sect = fig.add_subplot(gs[1, 1])
 
-    df_ai = df[["ai_bubble_score", "company"]].copy()
-    df_ai = df_ai.nlargest(20, "ai_bubble_score").sort_values("ai_bubble_score")
-
-    def ai_color(score):
-        if score >= 10: return "#ef4444"
-        if score >= 5:  return "#f59e0b"
-        if score >= 1:  return "#fbbf24"
-        return "#10b981"
-
-    colors_ai = [ai_color(v) for v in df_ai["ai_bubble_score"]]
-
-    bars_ai = ax_ai.barh(
-        df_ai["company"].astype(str).str[:22],
-        df_ai["ai_bubble_score"],
-        color=colors_ai,
-        edgecolor="none",
-    )
-    ax_ai.bar_label(bars_ai, fmt="%+.0f", padding=4,
-                    fontsize=8, fontweight="bold", color=TEXT_COLOR)
-    ax_ai.set_title("AI Bubble Score — top 20 companies",
-                    fontsize=11, pad=10)
-    ax_ai.set_xlabel("AI Bubble Score  (high = hype · negative = concrete use)",
-                     fontsize=9)
-    ax_ai.grid(axis="x", linestyle="--", alpha=0.3)
-    ax_ai.set_axisbelow(True)
-    ax_ai.tick_params(axis="y", labelsize=8)
-    for spine in ["top", "right"]:
-        ax_ai.spines[spine].set_visible(False)
-
-    # Legend for AI panel
-    legend_elements = [
-        Patch(facecolor="#ef4444", label="High hype (>=10)"),
-        Patch(facecolor="#f59e0b", label="AI-forward (5-9)"),
-        Patch(facecolor="#fbbf24", label="Exploring (1-4)"),
-        Patch(facecolor="#10b981", label="Concrete use (<=0)"),
+    sector_totals = df.groupby("gics_sector")[topic_cols].sum()
+    sector_totals = sector_totals.loc[
+        sector_totals.sum(axis=1).sort_values(ascending=False).index
     ]
-    ax_ai.legend(handles=legend_elements, loc="lower right",
-                 fontsize=7, framealpha=0.9, facecolor=PANEL_BG,
-                 edgecolor=GRID_COLOR, labelcolor=TEXT_COLOR)
+
+    sns.heatmap(
+        sector_totals.astype(float),
+        ax=ax_sect,
+        cmap="RdYlGn_r", center=0,
+        linewidths=0.4, linecolor=PANEL_BG,
+        annot=True, fmt=".0f",
+        annot_kws={"fontsize": 7, "color": TEXT_COLOR},
+        cbar_kws={"label": "", "shrink": 0.7},
+    )
+    ax_sect.set_title("Sector x theme — total concern",
+                      fontsize=11, pad=10)
+    ax_sect.set_xlabel("")
+    ax_sect.set_ylabel("")
+    ax_sect.tick_params(axis="x", rotation=30, labelsize=7)
+    ax_sect.tick_params(axis="y", rotation=0, labelsize=8)
 
     fig.savefig("dashboard_sentiment.png", dpi=150,
                 bbox_inches="tight", facecolor=DARK_BG)
     plt.show()
+    plt.close("all")
     print("Dashboard saved to  dashboard_sentiment.png")
 
-    # Restore default style for any subsequent plots
     plt.rcParams.update(plt.rcParamsDefault)
 
 
@@ -757,7 +860,8 @@ if __name__ == "__main__":
 
     print("Loading S&P 500 company list ...")
     sp500 = load_sp500(SAMPLE_SIZE, RANDOM_STATE)
-    print(f"{len(sp500)} companies loaded.\n")
+    print(f"{len(sp500)} companies loaded across "
+          f"{sp500['gics_sector'].nunique()} sectors.\n")
 
     print("Loading SEC CIK map ...")
     cik_map = load_cik_map()
@@ -769,8 +873,13 @@ if __name__ == "__main__":
     print(f"\nAnalysis complete. {len(df_results)} companies processed.")
     print("Results saved to  sp500_sentiment_topics.csv\n")
 
-    print("Generating visualizations ...")
+    print("Generating individual visualizations ...")
     plot_results(df_results)
 
-    print("Generating dashboard ...")
+    print("Generating sector breakdown ...")
+    plot_sector_analysis(df_results)
+
+    print("Generating composite dashboard ...")
     plot_dashboard(df_results)
+
+    print("\nAll outputs generated successfully.")
