@@ -1,8 +1,8 @@
 # S&P 500 10-Q Sentiment Analyzer
 
-Quantitative sentiment analysis of the most recent 10-Q filings from a random sample of S&P 500 companies, extracted directly from the SEC EDGAR API.
+Quantitative sentiment analysis of the most recent 10-Q filings from a random sample of S&P 500 companies, extracted directly from the SEC EDGAR API and broken down by GICS sector.
 
-The goal is to answer a simple question: **what are large U.S. corporations actually worried about this quarter?** Rather than reading fifty filings by hand, this tool scores corporate language across eight macroeconomic and strategic themes and produces publication-ready visualizations.
+The goal is to answer two questions: **what are large U.S. corporations actually worried about this quarter, and how does that vary by industry?** Rather than reading fifty filings by hand, this tool scores corporate language across seven macroeconomic and strategic themes, adds a dedicated AI bubble analysis, and aggregates results by sector for peer-group comparison.
 
 ---
 
@@ -18,9 +18,11 @@ For each company in the sample, the script:
 
 1. Retrieves the latest 10-Q filing metadata from the SEC EDGAR API
 2. Downloads and cleans the main filing document (handling the XBRL inline viewer wrapper)
-3. Scores the narrative text across eight themes using weighted keyword dictionaries
+3. Scores the narrative text across seven themes using weighted keyword dictionaries
 4. Detects negations to avoid false positives (e.g. "no signs of recession")
-5. Produces a CSV with per-company scores and six visualizations, including a composite dashboard
+5. Computes a dedicated AI bubble vs. solidity score
+6. Aggregates all results by GICS sector for peer-group comparison
+7. Produces a CSV with per-company scores and eight visualizations, including a composite dashboard and a dedicated sector breakdown
 
 ---
 
@@ -37,6 +39,8 @@ For each company in the sample, the script:
 | `consumer` | Demand, spending, trading down, affordability |
 | `ai_bubble` | AI hype vs. AI solidity (ROI, governance, risk) |
 
+Companies are also grouped by GICS Sector — one of the eleven macro sectors defined by the Global Industry Classification Standard: Information Technology, Financials, Health Care, Consumer Discretionary, Consumer Staples, Communication Services, Industrials, Energy, Utilities, Real Estate, Materials.
+
 ---
 
 ## Methodology
@@ -52,7 +56,7 @@ Each keyword is assigned a directional weight:
 | `-1` | Mild positive signal | `resilient consumer`, `pricing power` |
 | `-2` | Strong positive signal | `record demand`, `economic expansion` |
 
-The score for each theme is the sum of all weighted keyword matches found in the filing text.
+The score for each theme is the sum of all weighted keyword matches found in the filing text. A company with score `+20` on `inflation` is heavily focused on inflationary pressure; a company with score `-3` is actively denying or framing it positively.
 
 ### Negation detection
 
@@ -68,50 +72,18 @@ AI language is analyzed separately using three buckets:
 
 The net `ai_bubble_score` is `bubble_hits - solid_hits`. A highly positive score suggests hype-driven language; a negative score suggests concrete, measurable AI deployment.
 
----
+### Sector aggregation
 
+After scoring each company individually, results are grouped by GICS sector and summed. This allows for three types of comparison:
 
-## Installation
+- **Cross-sector** — which sector is most worried about geopolitical risk?
+- **Intra-sector composition** — what makes up Financials' total concern: credit, interest rates, or something else?
+- **Sector fingerprint** — a radar-chart profile showing each sector's unique concern mix
 
-```bash
-git clone https://github.com/YOUR_USERNAME/sp500-10q-sentiment-analyzer.git
-cd sp500-10q-sentiment-analyzer
-pip install -r requirements.txt
-```
-
-**Python version:** requires Python 3.10 or higher (the script uses modern type hint syntax).
+Sector labels come directly from the Wikipedia S&P 500 constituent table, which follows the official GICS classification.
 
 ---
 
-## Configuration
-
-Before running, open `src/analyzer.py` and replace the placeholder email in the `HEADERS_SEC` constant with your own:
-
-```python
-HEADERS_SEC = {"User-Agent": "your.email@example.com"}
-```
-
-The SEC requires a valid contact email in the `User-Agent` header for all API requests. See [SEC EDGAR fair access policy](https://www.sec.gov/os/webmaster-faq#code-support) for details.
-
----
-
-## Usage
-
-```bash
-python src/analyzer.py
-```
-
-The script will:
-
-- Print progress for each company processed
-- Save the raw scores CSV in `data/`
-- Save all PNG visualizations in `output/`
-
-Both directories are created automatically if they do not exist, and file paths are resolved relative to the script location — so the output ends up in the same place regardless of where you launch Python from.
-
-**Expected runtime:** about 3-5 minutes for 50 companies (respects SEC rate limit of 10 requests per second).
-
----
 
 ## Project structure
 
@@ -124,15 +96,18 @@ sp500-10q-sentiment-analyzer/
 ├── .gitignore
 ├── src/
 │   └── analyzer.py
-├── data/                                    (created on first run)
-│   └── sp500_sentiment_topics.csv
-└── output/                                  (created on first run)
+├── notebooks/
+│   └── exploration.ipynb
+└── output/
     ├── dashboard_sentiment.png
     ├── fig1_heatmap_weighted.png
     ├── fig2_bar_themes.png
     ├── fig3_ai_bubble_scatter.png
-    ├── fig4_ai_stacked_bar.png
-    └── fig5_top_concern.png
+    ├── fig4_top_concern.png
+    ├── fig5_sector_heatmap.png
+    ├── fig6_sector_stacked.png
+    ├── fig7_sector_radar.png
+    └── sp500_sentiment_topics.csv
 ```
 
 ---
@@ -142,10 +117,10 @@ sp500-10q-sentiment-analyzer/
 This project is intended as an exploratory tool, not a production-grade sentiment engine. Known limitations:
 
 - **Keyword-based approach** cannot capture complex semantic nuance, sarcasm, or conditional statements
-- **Sample size of 50 companies** is not statistically representative of the full S&P 500
+- **Sample size** may not be statistically representative of the full S&P 500 or of individual sectors, especially at small sample sizes where some sectors are represented by only one or two companies
 - **Negation window of 60 characters** may miss long-range negations or complex clause structures
 - **English only** — non-English filings or translated content are not supported
-- **No sector normalization** — a bank and a semiconductor company will naturally emphasize different themes
+- **No within-sector normalization** — a bank and a semiconductor company will naturally emphasize different themes, and sector aggregation helps with this, but within a sector the analysis still does not account for company size, revenue, or market cap
 - **Dictionary bias** — keyword selection reflects the author's interpretation of what constitutes a "concern signal"
 
 Results should be interpreted as directional and illustrative, not absolute.
@@ -154,10 +129,11 @@ Results should be interpreted as directional and illustrative, not absolute.
 
 ## Possible improvements
 
-- Replace keyword matching with a finance-tuned LLM such as **FinBERT**
+- Replace keyword matching with a finance-tuned LLM such as **FinBERT** for better semantic understanding
 - Expand to the full S&P 500 using async HTTP requests (`aiohttp`)
 - Add time-series analysis across multiple quarters to detect shifts in sentiment
-- Aggregate results by GICS sector for peer comparison
+- Weight company-level scores by market cap before sector aggregation
+- Use GICS Industry (58 groups) or Sub-Industry (163 groups) for more granular breakdowns
 - Build a Streamlit dashboard for interactive exploration
 - Include the Risk Factors section (Item 1A) in addition to MD&A
 
@@ -166,7 +142,7 @@ Results should be interpreted as directional and illustrative, not absolute.
 ## Data sources
 
 - **SEC EDGAR API** — https://www.sec.gov/edgar
-- **Wikipedia S&P 500 constituents** — https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
+- **Wikipedia S&P 500 constituents** — https://en.wikipedia.org/wiki/List_of_S%26P_500_companies (includes GICS Sector labels)
 
 All data used is publicly available. No proprietary data, no API keys required.
 
